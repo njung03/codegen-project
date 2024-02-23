@@ -1,23 +1,45 @@
 import gzip
-from fastapi import FastAPI, HTTPException
 import requests
 from openai import OpenAI
 from pydantic import BaseModel
+from fastapi import FastAPI, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from supafast import crud, models, schema
+from supafast.database import SessionLocal, engine
 
-class InputData(BaseModel):
-    github_repo_url: str
-    prompt: str
+
+# Dependency to get database session
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# Create tables if they do not exist
+models.Base.metadata.create_all(bind=engine)
+# class InputData(BaseModel):
+#     github_repo_url: str
+#     prompt: str
 
 app = FastAPI()
 client = OpenAI()
 @app.post("/generate-diff")
-async def generate_diff(input_data: InputData):
+async def generate_diff(input_data: schema.InputDataCreate, generate_diff_db: Session = Depends(get_db)):
     # Validate input
-    if not input_data.github_repo_url.startswith("https://github.com/"):
+    if not input_data.github_url.startswith("https://github.com/"):
         raise HTTPException(status_code=400, detail="Invalid GitHub repo URL")
-
+    
+    # # Store input in supabase
+    # try:
+    #     db_inputdata = crud.create_input_data(db=generate_diff_db, inputdata=input_data)
+    #     print("Input data inserted successfully:", db_inputdata)
+    # except Exception as e:
+    #     generate_diff_db.rollback() 
+    #     print("error creating input data:", e)
+    
     # Fetch content of the GitHub repository
-    github_api_url = f"{input_data.github_repo_url.rstrip('/')}/archive/master.tar.gz"
+    github_api_url = f"{input_data.github_url.rstrip('/')}/archive/master.tar.gz"
     response = requests.get(github_api_url)
     if response.status_code != 200:
         raise HTTPException(status_code=404, detail="Failed to fetch GitHub repository content")
@@ -35,11 +57,21 @@ async def generate_diff(input_data: InputData):
     # new_response = generate_intermediate_reflection_response(input_data.prompt, repository_content, initial_response)
     # print("intermediate refleciton response: ", new_response)
     reflection_response = generate_relfection_response(input_data.prompt, initial_response, repository_content)
-    final_response = generate_diff(input_data.prompt, repository_content, reflection_response)
+    final_response = generate_final_diff(input_data.prompt, repository_content, reflection_response)
     print("reflection response: ", reflection_response)
     # final_response = generate_response_with_reflection(input_data.prompt, initial_response)
     print("fianl_diff: ", final_response)
+    # Store final diff in supabase outputdiff table
+    try:
+        db_inputdata = crud.create_input_data(db=generate_diff_db, inputdata=input_data)
+        outputdiff_data = schema.OutputDiffCreate(diff = final_response)
+        _ = crud.create_output_data(db=generate_diff_db, outputdata=outputdiff_data,input_id=db_inputdata.id)
+    except Exception as e:
+        generate_diff_db.rollback() 
+        raise("error in inserting transaction: ", e)
+
     return {"Final diff": final_response}
+
 def generate_file(prompt, repository_content):
     completion = client.chat.completions.create(
         model="gpt-3.5-turbo",
@@ -142,10 +174,10 @@ def generate_relfection_response(initial_prompt, initial_response, repository_co
         messages=[
         {
         "role": "system",
-        "content": "provide solution to the user prompt"
+        "content": "The assistant must provide solution to the user's first prompt delimited by triple quotes"
         },
         {"role": "user",
-        "content": f"prompt: {initial_prompt}Ignore pax_global_header and README.md\n Also clearly state original and changed file names.\
+        "content": f"prompt: \n\"\"\"{initial_prompt}Ignore pax_global_header and README.md\n Also clearly state original and changed file names.\n\"\"\"\
             \n\nrepository: \n\"\"\"{repository_content} \n\"\"\"" 
         },
         {"role": "assistant",
@@ -153,9 +185,9 @@ def generate_relfection_response(initial_prompt, initial_response, repository_co
         },
         {
         "role": "user",
-        "content": "Is the model sure about the changes made to accomplish the task in the prompt? \
-            First work out your own solution to the prompt. Then compare to the model's solution \
-                and evaluate if your solution is correct or not. Please provide the actual solution to the user prompt as your answer.\
+        "content": "Please provide the correct solution after evaluating the mode's response. \
+            First work out your own solution to the prompt. Then compare to the previous model's solution \
+                and evaluate if your solution is correct or not. Please provide the actual solution to the user's prompt as your answer.\
                     Simply telling me that the model's solution is correct will not work for me."
         }
     ],
@@ -165,7 +197,7 @@ def generate_relfection_response(initial_prompt, initial_response, repository_co
     presence_penalty=0
     )
     return completion.choices[0].message.content
-def generate_diff(prompt, repository_content, prompt_response):
+def generate_final_diff(prompt, repository_content, prompt_response):
     completion = client.chat.completions.create(
     model="gpt-3.5-turbo",
     messages=[
@@ -179,8 +211,9 @@ def generate_diff(prompt, repository_content, prompt_response):
     },
     {
       "role": "user",
-      "content": "Please provide a Git-stye unified diff(plus and minus signs) comparing the original and modified files. Please provide the diff for all modified files. \
-        The diff should clearly indicate the difference between the original and modified files line by line."
+      "content": "Please generate a unified diff(plus and minus signs) in the traditional format where each line of the original file is followed by the corresponding modified line. \
+        Make sure the diff contain's each of the original file's code. The diff for each \
+            file should clearly indicate the differences between the original and the corresponding modified files line by line."
     }
   ],
   temperature=0,
