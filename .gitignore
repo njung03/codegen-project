@@ -406,3 +406,13 @@ venv/
 *.venv
 *.venv.*
 venv.*
+
+# Database configuration
+alembic.ini
+.env
+
+# Alembic migrations
+alembic/versions/
+
+# Temporary files and directories
+.idea/
