@@ -198,7 +198,8 @@ def generate_primary_diff(prompt, repository_content, prompt_response):
                 "content": "Using the modified files provided above,\
                     please generate a unified diff (plus and minus signs) \
                     in the traditional format where each line of the original file \
-                    from the repository above is followed by the corresponding\
+                    from the repository delimited in triple quotes \
+                        above is followed by the corresponding\
                     modified line from the files in the model's response.\
                     Make sure each file in the the diff contains \
                     the correct original repository code.",
@@ -249,12 +250,10 @@ def generate_final_diff(prompt, repository_content, primary_diff):
             {
                 "role": "user",
                 "content": "Are you sure about the model's diff? \
-                Please check against the original repository code above \
-                if each of the different files in the diff contains both\
-                the original code from the repository and the modified code. \
-                Make sure the original code from the repository and\
-                the corresponding modified code is in each file of the diff.\
-                Please provide the final diff as your response. \
+                Please check that each of the different files in the \
+                model's diff is comparing the original code from the \
+                repository provided above and the modified code in the\
+                model's diff. Please provide the final, correct diff as your response. \
                 Simply verifying the previous model's diff is not enough.",
             },
         ],
