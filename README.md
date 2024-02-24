@@ -46,7 +46,9 @@ uvicorn app.main:app --reload
 
 ### Accessing the API Documentation
 
-You can access the API documentation by navigating to the `/docs` endpoint in your web browser after starting the application. This documentation provides detailed information about the available endpoints and how to interact with them. If you're using vscode
+The live api is on: http://127.0.0.1:8000 
+
+You can access the API documentation by navigating to the `/docs` endpoint in your web browser after starting the application. This documentation provides detailed information about the available endpoints, which in this project is "generate-diff", and how to interact with them. If you're running it locally on vscode
 Thunder Client is an option.
 
 Example input: {
