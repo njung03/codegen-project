@@ -169,7 +169,7 @@ def generate_diff(
     input_id = store_input_data(input_data, generate_diff_db)
     store_unified_diff(final_diff, input_id, generate_diff_db)
 
-    return {"Final diff": final_diff}
+    return final_diff
 
 
 @handle_api_errors
