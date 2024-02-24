@@ -2,12 +2,14 @@ from sqlalchemy import Column, ForeignKey, Integer, String, Text, DateTime, Bool
 from sqlalchemy.orm import relationship
 from .database import Base
 
+
 class InputData(Base):
     __tablename__ = "input_data"
 
     id = Column(Integer, primary_key=True, index=True)
     prompt = Column(Text)
     github_url = Column(String)
+
 
 class OutputDiff(Base):
     __tablename__ = "output_diffs"
