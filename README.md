@@ -46,13 +46,14 @@ uvicorn app.main:app --reload
 
 ### Accessing the API Documentation
 
-The live api is on: http://127.0.0.1:8000 
+The live api is on: https://codegen-project.onrender.com
 
-You can access the API documentation by navigating to the `/docs` endpoint in your web browser after starting the application. This documentation provides detailed information about the available endpoints, which in this project is "generate-diff", and how to interact with them. If you're running it locally on vscode
-Thunder Client is an option.
+On your local machine, you can access the API documentation by navigating to the `/docs` endpoint in your web browser after starting the application. This documentation provides detailed information about the available endpoints, which in this project is "generate-diff", and how to interact with them. If you're running it locally on vscode, Thunder Client is an option to interact with the endpoint.
 
-Example input: {
+Example input: 
+{
   "github_url": "https://github.com/njung03/test-python-conversion",
   "prompt": "Convert python files to typescript"
 }
+
 Note: The quality of the output to this input is variable.
