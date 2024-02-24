@@ -34,7 +34,7 @@ This project is a trivial service that takes in a public GitHub repository and a
 
 Before running the application, you need to set up environment variables for your OpenAI API key and your Supabase database URI. 
 
-3. After setting the environment variables, make sure to restart your application for the changes to take effect.
+4. After setting the environment variables, make sure to restart your application for the changes to take effect.
 
 ### Running the Application
 
