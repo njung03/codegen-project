@@ -5,7 +5,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from supafast import crud, models, schema
 from supafast.database import SessionLocal, engine
-
+import os
 
 # Dependency to get database session
 def get_db():
@@ -20,7 +20,7 @@ def get_db():
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
-client = OpenAI()
+client = OpenAI(api_key = os.getenv('OPENAI_API_KEY'))
 
 
 @app.post("/generate-diff")
