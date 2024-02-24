@@ -6,6 +6,9 @@ from sqlalchemy.orm import Session
 from supafast import crud, models, schema
 from supafast.database import SessionLocal, engine
 import os
+import time
+from functools import wraps
+
 
 # Dependency to get database session
 def get_db():
@@ -20,13 +23,113 @@ def get_db():
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
-client = OpenAI(api_key = os.getenv('OPENAI_API_KEY'))
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+
+# Function to handle API errors and retry
+def handle_api_errors(func):
+    """
+    A decorator function to handle API errors and retry requests.
+
+    Args:
+        func (function): The function to be decorated.
+
+    Returns:
+        function: The wrapped function.
+    """
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        max_retries = 3
+        retries = 0
+        while retries < max_retries:
+            try:
+                return func(*args, **kwargs)
+            except requests.exceptions.HTTPError as e:
+                status_code = e.response.status_code
+                if status_code == 401:
+                    raise HTTPException(
+                        status_code=401, detail="Invalid Authentication"
+                    )
+                elif status_code == 429:
+                    if "Rate limit reached" in e.response.text:
+                        time.sleep(60)  # Wait for 60 seconds before retrying
+                    else:
+                        time.sleep(5)  # Wait for 5 seconds before retrying
+                elif status_code == 500 or status_code == 503:
+                    time.sleep(10)  # Wait for 10 seconds before retrying
+                else:
+                    print("An unexpected API error occurred: %s", e)
+                    raise HTTPException(status_code=500, detail="Internal server error")
+                retries += 1
+        raise HTTPException(
+            status_code=500, detail="Max retries reached. Unable to process request."
+        )
+
+    return wrapper
+
+
+# Store input data in the database
+def store_input_data(input_data: schema.InputDataCreate, generate_diff_db: Session):
+    """
+    Store input data in the database.
+
+    Args:
+        input_data (schema.InputDataCreate): The input data to be stored.
+        generate_diff_db (Session): The database session.
+
+    Returns:
+        int: The ID of the stored input data.
+    """
+    try:
+        # Create input data in the database
+        db_inputdata = crud.create_input_data(db=generate_diff_db, inputdata=input_data)
+        return db_inputdata.id
+    except Exception as e:
+        # Rollback the transaction in case of an error
+        generate_diff_db.rollback()
+        print("Error in storing input data: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# Store unified diff in the database
+def store_unified_diff(diff: str, input_id: int, generate_diff_db: Session):
+    """
+    Store unified diff in the database.
+
+    Args:
+        diff (str): The unified diff to be stored.
+        input_id (int): The ID of the corresponding input data.
+        generate_diff_db (Session): The database session.
+    """
+    try:
+        # Create output data (diff) in the database and link it to the input data
+        outputdiff_data = schema.OutputDiffCreate(diff=diff)
+        _ = crud.create_output_data(
+            db=generate_diff_db, outputdata=outputdiff_data, input_id=input_id
+        )
+    except Exception as e:
+        # Rollback the transaction in case of an error
+        generate_diff_db.rollback()
+        print("Error in storing unified diff: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.post("/generate-diff")
-async def generate_diff(
+@handle_api_errors
+def generate_diff(
     input_data: schema.InputDataCreate, generate_diff_db: Session = Depends(get_db)
 ):
+    """
+    Generate diff based on input data and store it in the database.
+
+    Args:
+        input_data (schema.InputDataCreate): The input data for generating the diff.
+        generate_diff_db (Session): The database session.
+
+    Returns:
+         The final diff.
+    """
     # Validate input
     if not input_data.github_url.startswith("https://github.com/"):
         raise HTTPException(status_code=400, detail="Invalid GitHub repo URL")
@@ -63,23 +166,13 @@ async def generate_diff(
     )
 
     # Store input(prompt and github url) and unified diff in supabase DB
-    try:
-        # Create input data in the database
-        db_inputdata = crud.create_input_data(db=generate_diff_db, inputdata=input_data)
-
-        # Create output data (diff) in the database and link it to the input data
-        outputdiff_data = schema.OutputDiffCreate(diff=final_diff)
-        _ = crud.create_output_data(
-            db=generate_diff_db, outputdata=outputdiff_data, input_id=db_inputdata.id
-        )
-    except Exception as e:
-        # Rollback the transaction in case of an error
-        generate_diff_db.rollback()
-        raise ("Error in inserting transaction: ", e)
+    input_id = store_input_data(input_data, generate_diff_db)
+    store_unified_diff(final_diff, input_id, generate_diff_db)
 
     return {"Final diff": final_diff}
 
 
+@handle_api_errors
 def generate_primary_response(prompt, repository_content):
     """
     Generate the primary response to a given prompt and repository content.
@@ -98,7 +191,7 @@ def generate_primary_response(prompt, repository_content):
             {
                 "role": "system",
                 "content": "You must provide modified files\
-                    as a solution to the user's prompt. Provide full solution."
+                    as a solution to the user's prompt. Provide full solution.",
             },
             {
                 "role": "user",
@@ -107,7 +200,7 @@ def generate_primary_response(prompt, repository_content):
                     the task in the prompt. Also clearly state original and\
                     changed file names.\
                     \n\nrepository: \n"""{repository_content} \n""" ',
-            }
+            },
         ],
         temperature=0,
         max_tokens=1024,
@@ -118,6 +211,7 @@ def generate_primary_response(prompt, repository_content):
     return completion.choices[0].message.content
 
 
+@handle_api_errors
 def generate_relfection_response(initial_prompt, initial_response, repository_content):
     """
     Generate the reflection response based on initial prompt, initial response,
@@ -170,6 +264,7 @@ def generate_relfection_response(initial_prompt, initial_response, repository_co
     return completion.choices[0].message.content
 
 
+@handle_api_errors
 def generate_primary_diff(prompt, repository_content, prompt_response):
     """
     Generate the primary unified diff based on prompt, repository content,
@@ -213,6 +308,8 @@ def generate_primary_diff(prompt, repository_content, prompt_response):
     )
     return completion.choices[0].message.content
 
+
+@handle_api_errors
 def generate_final_diff(prompt, repository_content, primary_diff):
     """
     Generate the final diff based on prompt, repository content, and primary diff.
