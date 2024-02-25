@@ -195,34 +195,7 @@ def generate_full_diff_helper(file_mappings, repo_url):
             # Overwrite the original file with modified content
             shutil.copyfile(modified_temp_file_path, modified_file_abs_path)
 
-            # if not os.path.exists(modified_file_abs_path):
-            #     print(
-            #         f"Modified file '{modified_file_path}' does not exist in the repository. Skipping..."
-            #     )
-            #     continue
-
-            # # Read modified file content
-            # with open(modified_file_abs_path, "r") as f:
-            #     existing_content = f.read()
-            # print(existing_content)
-            # Add the modified file to the staging area
-            subprocess.run(
-                ["git", "add", modified_file_abs_path], cwd=repo_dir, check=True
-            )
-            subprocess.run(["git", "add", "."], check=True)
-        # result = subprocess.run(
-        #     ["git", "status", "--porcelain"], capture_output=True, text=True, check=True
-        # )
-
-        # # Split the output into lines and filter for staged files
-        # staged_files = [
-        #     line.split()[1]
-        #     for line in result.stdout.split("\n")
-        #     if line.startswith("A ") or line.startswith("M ")
-        # ]
-        # print(result)
-        # Generate unified diff
-
+        subprocess.run(["git", "add", "."], cwd=repo_dir, check=True)
         diff_output = subprocess.check_output(
             ["git", "diff", "--unified=5", "--cached"],
             cwd=repo_dir,
