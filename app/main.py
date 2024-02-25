@@ -8,6 +8,13 @@ from supafast.database import SessionLocal, engine
 import os
 import time
 from functools import wraps
+import json
+import tarfile
+from io import BytesIO
+import tempfile
+import subprocess
+import shutil
+from urllib.parse import urlparse, parse_qs
 
 
 # Dependency to get database session
@@ -115,6 +122,173 @@ def store_unified_diff(diff: str, input_id: int, generate_diff_db: Session):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+# def get_branch_from_github_url(github_url):
+#     # Parse the URL
+#     parsed_url = urlparse(github_url)
+#     # Extract the query parameters
+#     query_params = parse_qs(parsed_url.query)
+#     # Extract the branch from the query parameters
+#     branch = query_params.get("branch", ["main"])[0]
+#     return branch
+
+
+def organize_repository_content(github_url):
+    # Validate input
+    if not github_url.startswith("https://github.com/"):
+        raise HTTPException(status_code=400, detail="Invalid GitHub repo URL")
+
+    # Fetch content of the GitHub repository
+    github_api_url = f"{github_url.rstrip('/')}/archive/master.tar.gz"
+    response = requests.get(github_api_url)
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=404, detail="Failed to fetch GitHub repository content"
+        )
+
+    # Extract content from the response
+    content = response.content  # This would be the content of the repository
+    decompressed_data = gzip.decompress(content)
+    repository_content = decompressed_data.decode("utf-8")
+    # result = {}
+    # # Open the content as a tar file
+    # with tarfile.open(fileobj=BytesIO(content), mode="r:gz") as tar:
+    #     # Iterate over each file in the archive
+    #     for member in tar.getmembers():
+    #         file_path = member.name
+    #         file_content = tar.extractfile(file_path)
+    #         if file_content:
+    #             file_content = file_content.read().decode("utf-8")
+    #             result[file_path] = file_content
+    return repository_content
+
+
+def get_basename(path):
+    return "/".join(path.split("/")[1:])
+
+
+def generate_full_diff_helper(file_mappings, repo_url):
+    print(file_mappings)
+    try:
+        # Clone the repository
+        repo_dir = tempfile.mkdtemp()
+        subprocess.run(["git", "clone", repo_url, repo_dir], check=True)
+
+        for original_file_path, mapping in file_mappings.items():
+            modified_content = mapping["modified_content"]
+            modified_file_path = mapping["modified_path"]
+
+            # get base name
+            modified_file_path = get_basename(modified_file_path)
+            original_file_path = get_basename(original_file_path)
+            # Write modified content to a temporary file
+            modified_temp_file_path = os.path.join(
+                tempfile.mkdtemp(), modified_file_path
+            )
+            with open(modified_temp_file_path, "w") as f:
+                f.write(modified_content)
+
+            # Rename the original file to match the modified file path
+            original_file_abs_path = os.path.join(repo_dir, original_file_path)
+            modified_file_abs_path = os.path.join(repo_dir, modified_file_path)
+            os.rename(original_file_abs_path, modified_file_abs_path)
+
+            # Overwrite the original file with modified content
+            shutil.copyfile(modified_temp_file_path, modified_file_abs_path)
+
+            # if not os.path.exists(modified_file_abs_path):
+            #     print(
+            #         f"Modified file '{modified_file_path}' does not exist in the repository. Skipping..."
+            #     )
+            #     continue
+
+            # # Read modified file content
+            # with open(modified_file_abs_path, "r") as f:
+            #     existing_content = f.read()
+            # print(existing_content)
+            # Add the modified file to the staging area
+            subprocess.run(
+                ["git", "add", modified_file_abs_path], cwd=repo_dir, check=True
+            )
+            subprocess.run(["git", "add", "."], check=True)
+        # result = subprocess.run(
+        #     ["git", "status", "--porcelain"], capture_output=True, text=True, check=True
+        # )
+
+        # # Split the output into lines and filter for staged files
+        # staged_files = [
+        #     line.split()[1]
+        #     for line in result.stdout.split("\n")
+        #     if line.startswith("A ") or line.startswith("M ")
+        # ]
+        # print(result)
+        # Generate unified diff
+
+        diff_output = subprocess.check_output(
+            ["git", "diff", "--unified=5", "--cached"],
+            cwd=repo_dir,
+            universal_newlines=True,
+        )
+        return diff_output
+    except Exception as e:
+        print("error in generating unified diff:", e)
+    finally:
+        # Check if the temporary directory exists and remove it if necessary
+        if os.path.exists(repo_dir):
+            shutil.rmtree(repo_dir, ignore_errors=True)
+            print("Temporary directory has been successfully removed.")
+        else:
+            print("Temporary directory does not exist.")
+
+
+#     """
+#     Generate the full unified diff for all modified files.
+
+#     Args:
+#         original_files_json (dict): JSON object with original file paths and contents.
+#         modified_files_json (dict): JSON object with modified file paths and contents.
+
+#     Returns:
+#         str: The full unified diff output.
+#     """
+#     # Initialize an empty string to accumulate the diff output
+#     full_diff_output = ""
+#     # print("original repository contet: ", original_files_json)
+#     # print("modified files: ", modified_files_json)
+#     # Iterate over modified files
+#     for original_path, modified_data in modified_files_json.items():
+#         modified_path = modified_data["modified_path"]
+#         modified_content = modified_data["modified_content"]
+#         print(original_path, modified_content)
+#         # Write original content to temporary file
+#         with tempfile.NamedTemporaryFile(mode="w", delete=False) as original_file:
+#             original_content = original_files_json.get(original_path)
+#             print("repository: ", original_files_json)
+#             print("original content fetched:", original_content, "\n\n", original_path)
+#             original_file.write(original_content)
+#             original_file_path = original_file.name
+
+#         # Write modified content to temporary file
+#         with tempfile.NamedTemporaryFile(mode="w", delete=False) as modified_file:
+#             modified_file.write(modified_content)
+#             modified_file_path = modified_file.name
+
+#         # Generate unified diff using git diff command
+#         diff_output = subprocess.check_output(
+#             ["git", "diff", "--unified", original_file_path, modified_file_path],
+#             text=True,
+#         )
+
+#         # Append diff output to the full diff
+#         full_diff_output += f"Unified diff for {modified_path}:\n{diff_output}\n\n"
+
+#         # Cleanup temporary files
+#         subprocess.run(["rm", original_file_path])
+#         subprocess.run(["rm", modified_file_path])
+
+#     # Return the full diff output
+#     return full_diff_output
+
+
 @app.post("/generate-diff")
 @handle_api_errors
 def generate_diff(
@@ -130,46 +304,136 @@ def generate_diff(
     Returns:
          The final diff.
     """
-    # Validate input
-    if not input_data.github_url.startswith("https://github.com/"):
-        raise HTTPException(status_code=400, detail="Invalid GitHub repo URL")
-
-    # Fetch content of the GitHub repository
-    github_api_url = f"{input_data.github_url.rstrip('/')}/archive/master.tar.gz"
-    response = requests.get(github_api_url)
-    if response.status_code != 200:
-        raise HTTPException(
-            status_code=404, detail="Failed to fetch GitHub repository content"
-        )
-
-    # Extract content from the response
-    content = response.content  # This would be the content of the repository
-    decompressed_data = gzip.decompress(content)
-    repository_content = decompressed_data.decode("utf-8")
+    # organize repository content in json format.
+    # key as file path and value as file content
+    repository_content = organize_repository_content(input_data.github_url)
+    # repository_content = json.dumps(repository_content, indent=4)
+    #   Print the organized content in JSON format
+    # print("repository organized in json: ", repository_content)
 
     # generate primary response to the prompt
-    primary_response = generate_primary_response(input_data.prompt, repository_content)
+    primary_response = generate_primary_json(input_data.prompt, repository_content)
+    # print("primary reponse in json: ", primary_response)
 
     # generate reflection response to prompt using primary response as input
-    reflection_response = generate_relfection_response(
+    reflection_response = generate_reflection_json(
         input_data.prompt, primary_response, repository_content
     )
-
-    # genereate primary diff to the final/reflection response
-    primary_diff = generate_primary_diff(
-        input_data.prompt, repository_content, reflection_response
+    # print("reflection to primary json: ", reflection_response)
+    reflection_response_json = json.loads(reflection_response)
+    print("reflection response json:", reflection_response_json)
+    final_unified_diff = generate_full_diff_helper(
+        reflection_response_json, input_data.github_url
     )
+    return final_unified_diff
 
-    # generate final diff with reflection on the primary diff
-    final_diff = generate_final_diff(
-        input_data.prompt, repository_content, primary_diff
-    )
+    # # genereate primary diff to the final/reflection response
+    # primary_diff = generate_primary_diff(
+    #     input_data.prompt, repository_content, reflection_response
+    # )
+
+    # # generate final diff with reflection on the primary diff
+    # final_diff = generate_final_diff(
+    #     input_data.prompt, repository_content, primary_diff
+    # )
 
     # Store input(prompt and github url) and unified diff in supabase DB
-    input_id = store_input_data(input_data, generate_diff_db)
-    store_unified_diff(final_diff, input_id, generate_diff_db)
+    # input_id = store_input_data(input_data, generate_diff_db)
+    # store_unified_diff(final_diff, input_id, generate_diff_db)
 
-    return final_diff
+    # return final_diff
+
+
+@handle_api_errors
+def generate_primary_json(prompt, repository_content):
+    completion = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {
+                "role": "system",
+                "content": 'You will be provided with a prompt and repository \
+                    Please modify the files to accomplish \
+                    the issue or task in the prompt. Answer in JSON format as \
+                    provided below.\
+                    \nDesired format:\
+                    \n{"src/main_original.py": \
+                    {"modified_path": "src/main.py",\
+                    "modified_content":"# Modified content of main.py"},\
+                    "src/utils_original.py":\
+                    {"modified_path": "src/utils.py",\
+                    "modified_content": "# Modified content of utils.py"}\n}\n\n',
+            },
+            {
+                "role": "user",
+                "content": f"Prompt: {prompt}\n\nrepository: {repository_content}",
+            },
+        ],
+        max_tokens=700,
+        top_p=1,
+        frequency_penalty=0,
+        presence_penalty=0,
+    )
+    # completion = client.chat.completions.create(
+    #     model="gpt-3.5-turbo",
+    # messages=[
+    #     {
+    #         "role": "system",
+    #     "content": 'You will be provided with a prompt and repository. \
+    # Please modify files to accomplish issue or task in the prompt. \
+    #     \nDesired format:\
+    #     \n{"modified_files":"path": "src/main.py", \
+    #     "content": "# Modified content of main.py"}, \
+    #     {"path": "src/utils.py","content": "# Modified content of utils.py"}]}',
+    # },
+    #     {
+    #         "role": "user",
+    #         "content": f"Prompt: {prompt}\n\nrepository: {repository_content}",
+    #     },
+    # ],
+    #     max_tokens=256,
+    #     top_p=1,
+    #     frequency_penalty=0,
+    #     presence_penalty=0,
+    # )
+    return completion.choices[0].message.content
+
+
+@handle_api_errors
+def generate_reflection_json(prompt, repository_content, primary_json):
+    completion = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {
+                "role": "system",
+                "content": 'First work out your own solution to the \
+                    prompt and repository. The repository is in JSON format \
+                    with the key as the file path and the value as the file content.\
+                    Then compare your solution to the user\'s solution and \
+                    evaluate if the user\'s solution is correct or not. \
+                    Don\'t decide if the user\'s solution is correct until\
+                    you have done the problem yourself. \
+                    You will provide the final, correct answer in JSON format as provided below.\
+                    \nDesired format:\
+                    \n{"src/main_original.py": \
+                    {"modified_path": "src/main.py",\
+                    "modified_content":"# Modified content of main.py"},\
+                    "src/utils_original.py":\
+                    {"modified_path": "src/utils.py",\
+                    "modified_content": "# Modified content of utils.py"}\n}\n\n',
+            },
+            {
+                "role": "user",
+                "content": f"Prompt: {prompt}\
+                    \n\nrepository: {repository_content}\
+                    \n\nuser's solution: {primary_json}",
+            },
+        ],
+        max_tokens=700,
+        top_p=1,
+        frequency_penalty=0,
+        presence_penalty=0,
+    )
+    return completion.choices[0].message.content
 
 
 @handle_api_errors
