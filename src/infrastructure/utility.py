@@ -18,7 +18,7 @@ def handle_errors(func):
 
     @wraps(func)
     def wrapper(*args, **kwargs):
-        max_retries = 3
+        max_retries = 4
         retries = 0
         while retries < max_retries:
             try:

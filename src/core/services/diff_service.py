@@ -88,5 +88,5 @@ def generate_diff(input_data: schema.InputDataCreate, db: Session):
     )
     # Store input and unified diff in database
     id = store_input_data(input_data, db)
-    store_unified_diff(final_unified_diff, id)
+    store_unified_diff(final_unified_diff, id, db)
     return final_unified_diff
