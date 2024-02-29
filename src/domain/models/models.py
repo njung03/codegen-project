@@ -1,6 +1,5 @@
-from sqlalchemy import Column, ForeignKey, Integer, String, Text, DateTime, Boolean
-from sqlalchemy.orm import relationship
-from ...infrastructure.session.database import Base
+from sqlalchemy import Column, ForeignKey, Integer, String, Text
+from ...infrastructure.db.database import Base
 
 
 class InputData(Base):
