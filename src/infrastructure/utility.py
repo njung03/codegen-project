@@ -5,7 +5,7 @@ from fastapi import HTTPException
 import requests
 
 
-def handle_errors(self, func):
+def handle_errors(func):
     """
     A decorator function to handle API errors and retry requests.
 

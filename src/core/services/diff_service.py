@@ -6,7 +6,10 @@ from src.infrastructure.services.github_service import (
     generate_full_diff_helper,
     get_repository_content,
 )
-from src.infrastructure.services.openai_service import OpenAISerivce
+from src.infrastructure.services.openai_service import (
+    generate_primary_response,
+    generate_reflection_response,
+)
 from src.infrastructure.repositories import crud
 from sqlalchemy.orm import Session
 
@@ -69,14 +72,11 @@ def generate_diff(input_data: schema.InputDataCreate, db: Session):
     """
     repository_content = get_repository_content(input_data.github_url)
 
-    openai_client = OpenAISerivce()
     # generate primary response to the prompt
-    primary_response = openai_client.generate_primary_response(
-        input_data.prompt, repository_content
-    )
+    primary_response = generate_primary_response(input_data.prompt, repository_content)
 
     # generate reflection response to prompt using primary response as input
-    reflection_response = openai_client.generate_reflection_response(
+    reflection_response = generate_reflection_response(
         input_data.prompt, primary_response, repository_content
     )
 

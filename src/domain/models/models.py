@@ -1,5 +1,6 @@
 from sqlalchemy import Column, ForeignKey, Integer, String, Text
-from ...infrastructure.db.database import Base
+
+from src.infrastructure.db.database import Base
 
 
 class InputData(Base):
