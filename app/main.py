@@ -1,7 +1,4 @@
-import os
 from fastapi import Depends, FastAPI
-from openai import OpenAI
-import openai
 from src.core.services.diff_service import generate_diff
 from src.domain.models import models, schema
 from src.infrastructure.db.database import SessionLocal, engine
